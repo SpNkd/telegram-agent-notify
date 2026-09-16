@@ -1,5 +1,6 @@
 import json
 import os
+import socket
 import ssl
 import stat
 import tempfile
@@ -283,6 +284,16 @@ class CoreTests(unittest.TestCase):
             client.send_message("hello")
         self.assertIn("TELEGRAM_NOTIFY_CA_FILE", str(raised.exception))
         self.assertIn("--insecure-tls", str(raised.exception))
+
+    def test_dns_error_explains_host_network_retry(self):
+        settings = Settings.from_mapping({"bot_token": TOKEN, "chat_id": "1"}, Path("config.json"))
+        error = URLError(socket.gaierror(8, "nodename nor servname provided"))
+        client = TelegramClient(settings, opener=FakeOpener(error=error))
+        with self.assertRaises(TelegramNetworkError) as raised:
+            client.send_message("hello")
+        self.assertIn("DNS resolution failed", str(raised.exception))
+        self.assertIn("host/system network", str(raised.exception))
+        self.assertIn("does not affect DNS", str(raised.exception))
 
     def test_invalid_token_and_missing_chat_are_rejected(self):
         self.assertFalse(validate_bot_token("not-a-token"))

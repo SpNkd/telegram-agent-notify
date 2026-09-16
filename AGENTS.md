@@ -45,6 +45,15 @@ python3 -m py_compile src/telegram_notify.py telegram_notify.py scripts/install.
 
 Edit the canonical implementation in `src/telegram_notify.py`; `telegram_notify.py` at the repository root is only a convenience entry point. Do not create a GitHub release or tag unless the user explicitly asks for one.
 
+## Sandbox network fallback
+
+Telegram delivery can fail before the API request when an agent sandbox cannot resolve `api.telegram.org`. Typical messages include `nodename nor servname provided`, `Name or service not known`, or `Temporary failure in name resolution`. Treat this as a sandbox DNS restriction, not as a Telegram or certificate problem:
+
+1. Retry the same `telegram-notify completion` or explicitly requested `send-file` command once using the host/system network execution mode provided by the agent environment.
+2. Do not try to fix DNS with `--insecure-tls`; that flag affects certificate verification only.
+3. For the maintainer's approved local setup, keep the explicit `--insecure-tls` flag on the host-network retry as described below.
+4. If the host-network retry also fails, report the delivery failure and stop; do not loop indefinitely.
+
 ## Security
 
 TLS verification is enabled by default. `--insecure-tls` is an explicit opt-in for a trusted local network only. Configuration is stored outside the repository and should remain protected. Do not weaken the secret-file guard or upload `.env`, private keys, certificates, credentials, or similar files without an explicit, informed user request.

@@ -137,6 +137,8 @@ This persists the choice in the local config. Re-enable verification with `teleg
 
 For the maintainer's already-approved local setup, the same explicit `--insecure-tls` flag may be added to `completion` or `send-file` if delivery fails with `CERTIFICATE_VERIFY_FAILED`. This is not the default for new installations.
 
+If an agent sandbox reports `nodename nor servname provided`, `Name or service not known`, or another DNS resolution error for `api.telegram.org`, the failure happened before Telegram was contacted. Retry the same command once with the host/system network access provided by the agent environment; `--insecure-tls` does not affect DNS. Stop after that retry if the host network is also unavailable.
+
 ## Manual usage
 
 Short form:

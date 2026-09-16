@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-VERSION = "0.1.5"
+VERSION = "0.1.6"
 DEFAULT_MAX_LENGTH = 3900
 MAX_TELEGRAM_TEXT_LENGTH = 4096
 MAX_FILE_BYTES = 10 * 1024 * 1024
@@ -545,7 +545,18 @@ class TelegramClient:
 
     def _network_error(self, exc: BaseException) -> TelegramNetworkError:
         reason = getattr(exc, "reason", exc)
-        if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
+        reason_text = str(reason)
+        if (
+            isinstance(reason, socket.gaierror)
+            or "nodename nor servname" in reason_text.lower()
+            or "name or service not known" in reason_text.lower()
+            or "temporary failure in name resolution" in reason_text.lower()
+        ):
+            return TelegramNetworkError(
+                "DNS resolution failed before reaching Telegram. Retry the same command once "
+                "with host/system network access; --insecure-tls does not affect DNS."
+            )
+        if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in reason_text:
             hint = (
                 "TLS certificate verification failed. If a corporate proxy is in use, export its root CA "
                 "as PEM and set TELEGRAM_NOTIFY_CA_FILE or rerun configure with --ca-file. "

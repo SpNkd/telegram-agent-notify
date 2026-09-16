@@ -5,6 +5,7 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 - Documented the maintainer-approved local TLS exception for Telegram completion and explicit file delivery.
+- Added DNS-specific diagnostics and one-retry host-network guidance for agent sandboxes.
 
 ## [0.1.5] - 2026-09-16
 
