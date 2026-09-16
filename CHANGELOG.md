@@ -6,6 +6,7 @@ All notable changes to this project are documented here.
 
 - Documented the maintainer-approved local TLS exception for Telegram completion and explicit file delivery.
 - Added DNS-specific diagnostics and one-retry host-network guidance for agent sandboxes.
+- Clarified that the approved maintainer setup must pass `--insecure-tls` on the first Telegram delivery attempt.
 
 ## [0.1.5] - 2026-09-16
 
