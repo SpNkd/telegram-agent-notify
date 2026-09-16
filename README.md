@@ -52,6 +52,10 @@ On Windows the launcher is placed in `%LOCALAPPDATA%\\telegram-agent-notify\\tel
 For a non-interactive install:
 
 ```bash
+# Codex only
+./install.sh --yes --codex
+
+# Both Codex and Claude Code
 ./install.sh --yes --codex --claude
 ```
 

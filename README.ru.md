@@ -27,6 +27,11 @@
 ```bash
 git clone https://github.com/SpNkd/telegram-agent-notify.git
 cd telegram-agent-notify
+
+# Только Codex
+./install.sh --yes --codex
+
+# Codex и Claude Code
 ./install.sh --yes --codex --claude
 telegram-notify configure
 ```

@@ -52,6 +52,17 @@ def write_launcher(path: Path, application: Path, windows: bool) -> None:
         path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
+def resolve_skill_choices(args: argparse.Namespace) -> tuple[bool, bool]:
+    """Resolve explicit skill flags without letting --yes broaden the request."""
+    if args.codex is True and args.claude is None:
+        return True, False
+    if args.claude is True and args.codex is None:
+        return False, True
+    install_codex = args.codex if args.codex is not None else (ask("Install the Codex skill?") if not args.yes else True)
+    install_claude = args.claude if args.claude is not None else (ask("Install the Claude Code skill?") if not args.yes else True)
+    return bool(install_codex), bool(install_claude)
+
+
 def install(args: argparse.Namespace) -> int:
     windows = os.name == "nt"
     if args.prefix:
@@ -83,8 +94,7 @@ def install(args: argparse.Namespace) -> int:
     write_launcher(binary_dir / launcher_name, core_target, windows)
     print(f"Installed CLI: {binary_dir / launcher_name}")
 
-    install_codex = args.codex if args.codex is not None else (ask("Install the Codex skill?") if not args.yes else True)
-    install_claude = args.claude if args.claude is not None else (ask("Install the Claude Code skill?") if not args.yes else True)
+    install_codex, install_claude = resolve_skill_choices(args)
     if install_codex:
         copy_tree(PROJECT_ROOT / "skills" / "codex", codex_root / "telegram-notify", args.force)
         print(f"Installed Codex skill: {codex_root / 'telegram-notify'}")
@@ -99,9 +109,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Install telegram-agent-notify for the current user.")
     parser.add_argument("--prefix", type=Path, help="use an isolated installation root (useful for testing)")
     parser.add_argument("--bin-dir", type=Path, help="override the Unix launcher directory")
-    parser.add_argument("--codex", dest="codex", action="store_true", help="install only the Codex skill")
+    parser.add_argument("--codex", dest="codex", action="store_true", help="install the Codex skill; alone, skip Claude")
     parser.add_argument("--no-codex", dest="codex", action="store_false", help="skip the Codex skill")
-    parser.add_argument("--claude", dest="claude", action="store_true", help="install only the Claude Code skill")
+    parser.add_argument("--claude", dest="claude", action="store_true", help="install the Claude Code skill; alone, skip Codex")
     parser.add_argument("--no-claude", dest="claude", action="store_false", help="skip the Claude Code skill")
     parser.add_argument("--yes", action="store_true", help="accept default skill choices")
     parser.add_argument("--force", action="store_true", help="overwrite installed files")
