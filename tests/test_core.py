@@ -21,6 +21,8 @@ from src.telegram_notify import (  # noqa: E402
     apply_project_override,
     choose_chat,
     find_targets,
+    find_targets_for_code,
+    format_discovery_command,
     format_completion,
     load_from_args,
     load_settings,
@@ -104,12 +106,34 @@ class CoreTests(unittest.TestCase):
         )
         self.assertEqual(targets, [("-100123", "77", "Engineering", "Releases")])
 
+    def test_discovery_code_finds_group_topic_from_start_command(self):
+        targets = find_targets_for_code(
+            [
+                {
+                    "message": {
+                        "text": "/start@remnawv_bot TN-ABCD2345",
+                        "message_thread_id": 77,
+                        "chat": {"id": -100123, "title": "Engineering"},
+                    }
+                }
+            ],
+            "TN-ABCD2345",
+        )
+        self.assertEqual(targets, [("-100123", "77", "Engineering", "thread 77")])
+
+    def test_discovery_command_can_address_bot_in_group(self):
+        self.assertEqual(
+            format_discovery_command("TN-ABCD2345", "remnawv_bot"),
+            "/start@remnawv_bot TN-ABCD2345",
+        )
+
     def test_choose_chat_uses_client_for_update_discovery(self):
         class UpdatesClient:
             def get_updates(self):
                 return [
                     {
                         "message": {
+                            "text": "/start@remnawv_bot TN-ABCD2345",
                             "chat": {"id": "-100123", "title": "Engineering"},
                             "message_thread_id": 77,
                             "forum_topic_created": {"name": "Releases"},
@@ -117,8 +141,9 @@ class CoreTests(unittest.TestCase):
                     }
                 ]
 
-        with patch("builtins.input", side_effect=["", "y"]):
-            target = choose_chat(UpdatesClient())
+        with patch("src.telegram_notify.make_discovery_code", return_value="TN-ABCD2345"):
+            with patch("builtins.input", side_effect=[""]):
+                target = choose_chat(UpdatesClient(), "remnawv_bot")
         self.assertEqual(target, ("-100123", "77", "Engineering", "Releases"))
 
     def test_project_target_overrides_default_destination(self):

@@ -65,15 +65,16 @@ The installer is idempotent. Use `--force` when updating an existing installatio
 
 1. Open [@BotFather](https://t.me/BotFather) in Telegram.
 2. Send `/newbot`, choose a name and username, and copy the token.
-3. Run `telegram-notify configure`.
-4. Paste the token when prompted.
-5. Send a message in the exact destination: directly to the bot for a private chat, or inside the target group/topic.
-6. Press Enter in the terminal. The setup discovers the destination and, when applicable, the topic automatically.
-7. Confirm the optional settings and let the setup send a test message.
+3. Add the bot to the target group.
+4. Run `telegram-notify configure` and paste the token when prompted.
+5. The CLI prints a one-time command such as `/start@your_bot TN-ABCD2345`.
+6. Send that command directly to the bot, or inside the exact target group/topic.
+7. Press Enter in the terminal. The setup discovers the chat and, when applicable, the topic automatically.
+8. Confirm the optional settings and let the setup send a test message.
 
 The token is never placed in this repository. Do not paste a real token into shell history, source files, or issue reports.
 
-For group topics, the bot must be able to receive the message. If Telegram privacy mode hides ordinary group messages, send a command or mention the bot, make the bot an administrator, or adjust the bot's privacy setting in BotFather. The wizard only needs one recent message in the desired topic.
+For group topics, send the one-time command inside the desired topic. The `/start` command is used so Telegram can deliver it even when the bot's privacy mode is enabled; the bot still has to be a member of the group. The wizard only needs this one command in the desired destination.
 
 ## Configure and test
 

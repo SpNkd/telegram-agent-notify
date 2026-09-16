@@ -10,6 +10,7 @@ import json
 import mimetypes
 import os
 import re
+import secrets
 import socket
 import ssl
 import stat
@@ -24,10 +25,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 DEFAULT_MAX_LENGTH = 3900
 MAX_TELEGRAM_TEXT_LENGTH = 4096
 MAX_FILE_BYTES = 10 * 1024 * 1024
+DISCOVERY_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "enabled": True,
@@ -802,6 +804,25 @@ def prompt(label: str, default: str = "") -> str:
 Target = Tuple[str, Optional[str], str, str]
 
 
+def make_discovery_code() -> str:
+    """Create a short, human-friendly code for one configure attempt."""
+    return "TN-" + "".join(secrets.choice(DISCOVERY_CODE_ALPHABET) for _ in range(8))
+
+
+def format_discovery_command(code: str, bot_username: str = "") -> str:
+    username = str(bot_username or "").strip().lstrip("@")
+    address = f"@{username}" if username else ""
+    return f"/start{address} {code}"
+
+
+def _message_from_update(update: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
+    for key in ("message", "channel_post", "edited_message", "edited_channel_post"):
+        message = update.get(key)
+        if isinstance(message, dict):
+            return message
+    return None
+
+
 def _chat_name(chat: Mapping[str, Any]) -> str:
     name = chat.get("title") or " ".join(str(chat.get(key, "")) for key in ("first_name", "last_name")).strip()
     username = chat.get("username")
@@ -827,8 +848,8 @@ def _topic_name(message: Mapping[str, Any], thread_id: Optional[str]) -> str:
 def find_targets(updates: Iterable[Mapping[str, Any]]) -> List[Target]:
     found: Dict[Tuple[str, str], Target] = {}
     for update in updates:
-        message = update.get("message") or update.get("channel_post") or update.get("edited_message")
-        if not isinstance(message, dict):
+        message = _message_from_update(update)
+        if message is None:
             continue
         chat = message.get("chat")
         if not isinstance(chat, dict) or "id" not in chat:
@@ -839,6 +860,23 @@ def find_targets(updates: Iterable[Mapping[str, Any]]) -> List[Target]:
         target = (chat_id, thread_id, _chat_name(chat), _topic_name(message, thread_id))
         found[(chat_id, thread_id or "")] = target
     return list(found.values())
+
+
+def find_targets_for_code(updates: Iterable[Mapping[str, Any]], code: str) -> List[Target]:
+    """Find destinations containing the one-time configure code."""
+    normalized = str(code or "").strip()
+    if not normalized:
+        return []
+    pattern = re.compile(r"(?<![A-Za-z0-9])" + re.escape(normalized) + r"(?![A-Za-z0-9])", re.IGNORECASE)
+    matching_updates: List[Mapping[str, Any]] = []
+    for update in updates:
+        message = _message_from_update(update)
+        if message is None:
+            continue
+        text = message.get("text") or message.get("caption")
+        if isinstance(text, str) and pattern.search(text):
+            matching_updates.append(update)
+    return find_targets(matching_updates)
 
 
 def find_chats(updates: Iterable[Mapping[str, Any]]) -> List[Tuple[str, str]]:
@@ -857,11 +895,18 @@ def format_target(target: Target) -> str:
     return f"{label} (chat_id {chat_id})"
 
 
-def choose_chat(client: TelegramClient) -> Target:
-    print("Send a message in the target group or topic and press Enter.")
-    input()
-    targets = find_targets(client.get_updates())
+def choose_chat(client: TelegramClient, bot_username: str = "") -> Target:
+    code = make_discovery_code()
+    command = format_discovery_command(code, bot_username)
+    print("To select the destination, send this exact command in Telegram:")
+    print(f"  {command}")
+    print("Send it directly to the bot, or inside the target group/topic.")
+    print("For a topic, open that topic before sending the command.")
+    input("Press Enter here after sending it: ")
+    targets = find_targets_for_code(client.get_updates(), code)
     if not targets:
+        print(f"No message with discovery code {code} was found.")
+        print("Make sure the bot is a member of the group and send the command exactly as shown.")
         manual = prompt("No chat found. Enter chat_id manually")
         if not validate_chat_id(manual):
             raise ConfigError("chat_id must be a numeric id or @channelusername")
@@ -869,13 +914,7 @@ def choose_chat(client: TelegramClient) -> Target:
         return manual, thread or None, "Configured chat", f"thread {thread}" if thread else ""
     if len(targets) == 1:
         target = targets[0]
-        answer = prompt(f"Use {format_target(target)}? Y/n", "Y").lower()
-        if answer not in {"", "y", "yes"}:
-            manual = prompt("Enter chat_id manually")
-            if not validate_chat_id(manual):
-                raise ConfigError("chat_id must be a numeric id or @channelusername")
-            thread = prompt("Topic thread id (optional; leave empty for General)")
-            return manual, thread or None, "Configured chat", f"thread {thread}" if thread else ""
+        print(f"✓ Destination found: {format_target(target)}")
         return target
     print("Found destinations:")
     for index, target in enumerate(targets, 1):
@@ -981,7 +1020,7 @@ def handle_configure(argv: Sequence[str], prog: str) -> int:
             str(destination_defaults.get("topic_name", "") or ""),
         )
     else:
-        target = choose_chat(TelegramClient(probe))
+        target = choose_chat(TelegramClient(probe), username)
     chat_id, thread, chat_name, topic_name = target
 
     def optional(name: str, flag_value: Any, old_key: str, default: str, source: Mapping[str, Any] = existing) -> str:

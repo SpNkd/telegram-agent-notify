@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## [0.1.3] - 2026-09-16
+
+- Added one-time `/start CODE` destination discovery for reliable group and topic configuration, including Telegram privacy mode.
+
 ## [0.1.2] - 2026-09-16
 
 - Fixed `configure` destination discovery after successful bot validation by passing a Telegram client to the update lookup.
