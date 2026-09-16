@@ -84,7 +84,19 @@ telegram-notify configure --ca-file /path/to/corporate-root-ca.pem
 export TELEGRAM_NOTIFY_CA_FILE=/path/to/corporate-root-ca.pem
 ```
 
-Проверка TLS остаётся включённой. Не отключайте верификацию сертификатов.
+Если это заведомо доверенная локальная сеть и вы принимаете риск, можно явно отключить проверку для Telegram-запросов:
+
+```bash
+telegram-notify configure --insecure-tls
+```
+
+Настройка сохранится в локальном конфиге. Вернуть проверку можно так:
+
+```bash
+telegram-notify configure --secure-tls
+```
+
+Режим отключает проверку сертификата и имени хоста. Не используйте его в недоверенной сети.
 
 ## Команды
 

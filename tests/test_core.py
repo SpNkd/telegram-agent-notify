@@ -1,4 +1,5 @@
 import json
+import ssl
 import stat
 import tempfile
 import unittest
@@ -70,6 +71,18 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(settings.bot_token, TOKEN)
             self.assertEqual(settings.sender, "env")
             self.assertEqual(settings.chat_id, "1")
+
+    def test_insecure_tls_can_be_enabled_from_environment(self):
+        settings = load_settings(environ={"TELEGRAM_NOTIFY_INSECURE_TLS": "true"}, path=Path("config.json"))
+        self.assertTrue(settings.insecure_tls)
+
+    def test_insecure_tls_context_is_explicitly_unverified(self):
+        settings = Settings.from_mapping(
+            {"bot_token": TOKEN, "chat_id": "1", "insecure_tls": True}, Path("config.json")
+        )
+        context = TelegramClient(settings)._ssl_context()
+        self.assertEqual(context.verify_mode, ssl.CERT_NONE)
+        self.assertFalse(context.check_hostname)
 
     def test_topic_target_is_discovered_without_manual_ids(self):
         targets = find_targets(
@@ -201,7 +214,7 @@ class CoreTests(unittest.TestCase):
         with self.assertRaises(TelegramNetworkError) as raised:
             client.send_message("hello")
         self.assertIn("TELEGRAM_NOTIFY_CA_FILE", str(raised.exception))
-        self.assertIn("TLS verification was not disabled", str(raised.exception))
+        self.assertIn("--insecure-tls", str(raised.exception))
 
     def test_invalid_token_and_missing_chat_are_rejected(self):
         self.assertFalse(validate_bot_token("not-a-token"))

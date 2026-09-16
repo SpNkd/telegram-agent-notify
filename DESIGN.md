@@ -25,7 +25,7 @@ The default destination is stored in the top-level `chat_id` and `message_thread
 
 Messages use Telegram HTML mode by default, but all dynamic content is escaped as text. Long messages are split at a conservative visible length of 3900 characters. File sending is always explicit, limited to 10 MiB, and rejects obvious secret filenames unless `--force` is supplied.
 
-HTTPS uses Python's default certificate verification. Environments with an HTTPS-inspecting corporate proxy can provide its root CA PEM bundle with `--ca-file` or `TELEGRAM_NOTIFY_CA_FILE`; verification is never disabled.
+HTTPS uses Python's default certificate verification. Environments with an HTTPS-inspecting corporate proxy can provide its root CA PEM bundle with `--ca-file` or `TELEGRAM_NOTIFY_CA_FILE`. An explicit `--insecure-tls` / `TELEGRAM_NOTIFY_INSECURE_TLS=true` opt-in exists for intentionally trusted local environments; it disables hostname and certificate verification only after the user requests it and persists the choice in the local config.
 
 ## Agent integrations
 

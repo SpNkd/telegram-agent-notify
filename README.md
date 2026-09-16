@@ -120,10 +120,17 @@ TELEGRAM_NOTIFY_MAX_LENGTH=3900
 TELEGRAM_NOTIFY_TIMEOUT=15
 TELEGRAM_NOTIFY_PROXY=http://proxy.example:8080
 TELEGRAM_NOTIFY_CA_FILE=/path/to/corporate-root-ca.pem
+TELEGRAM_NOTIFY_INSECURE_TLS=false
 TELEGRAM_NOTIFY_PROJECT_DIR=/path/to/project
 ```
 
-If macOS or a corporate HTTPS proxy reports `CERTIFICATE_VERIFY_FAILED`, export the proxy's root certificate as a PEM bundle and configure it with `telegram-notify configure --ca-file /path/to/corporate-root-ca.pem` or `TELEGRAM_NOTIFY_CA_FILE`. Certificate verification stays enabled; do not work around this error by disabling TLS verification.
+If macOS or a corporate HTTPS proxy reports `CERTIFICATE_VERIFY_FAILED`, the recommended fix is to export the proxy's root certificate as a PEM bundle and configure it with `telegram-notify configure --ca-file /path/to/corporate-root-ca.pem` or `TELEGRAM_NOTIFY_CA_FILE`. If this is an intentionally trusted local environment and you accept the risk, use the explicit opt-in:
+
+```bash
+telegram-notify configure --insecure-tls
+```
+
+This persists the choice in the local config. Re-enable verification with `telegram-notify configure --secure-tls`. The insecure mode disables hostname and certificate verification for Telegram HTTPS requests; never use it on an untrusted network.
 
 ## Manual usage
 
@@ -219,7 +226,7 @@ The optional [integrations/claude/settings.fragment.json](integrations/claude/se
 - API URLs, request bodies, and tokens are not logged. Error text is token-redacted.
 - Dynamic message content is HTML-escaped. `plain` mode is available if desired.
 - Network/API errors become a warning for ordinary notifications. `test`, `doctor`, and `configure` still return a failing exit code when verification fails.
-- TLS certificate verification is always enabled. A corporate root CA can be supplied explicitly with `--ca-file` or `TELEGRAM_NOTIFY_CA_FILE`.
+- TLS certificate verification is enabled by default. A corporate root CA can be supplied explicitly with `--ca-file` or `TELEGRAM_NOTIFY_CA_FILE`; intentionally trusted local environments can opt in to `--insecure-tls`.
 - No Telegram request is made by the unit test suite.
 
 ## Development

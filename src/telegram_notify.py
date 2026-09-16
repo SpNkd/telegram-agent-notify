@@ -41,6 +41,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "send_files": True,
     "proxy": None,
     "ca_file": None,
+    "insecure_tls": False,
     "timeout": 15,
     "bot_username": "",
     "chat_name": "",
@@ -60,6 +61,7 @@ ENV_FIELDS = {
     "TELEGRAM_NOTIFY_SEND_FILES": "send_files",
     "TELEGRAM_NOTIFY_PROXY": "proxy",
     "TELEGRAM_NOTIFY_CA_FILE": "ca_file",
+    "TELEGRAM_NOTIFY_INSECURE_TLS": "insecure_tls",
     "TELEGRAM_NOTIFY_TIMEOUT": "timeout",
 }
 
@@ -104,6 +106,7 @@ class Settings:
     send_files: bool
     proxy: Optional[str]
     ca_file: Optional[str]
+    insecure_tls: bool
     timeout: float
     bot_username: str
     chat_name: str
@@ -158,6 +161,7 @@ class Settings:
             send_files=as_bool(values.get("send_files", True), "send_files"),
             proxy=(str(values["proxy"]).strip() if values.get("proxy") else None),
             ca_file=(str(values["ca_file"]).strip() if values.get("ca_file") else None),
+            insecure_tls=as_bool(values.get("insecure_tls", False), "insecure_tls"),
             timeout=timeout,
             bot_username=str(values.get("bot_username", "") or "").strip(),
             chat_name=str(values.get("chat_name", "") or "").strip(),
@@ -179,6 +183,7 @@ class Settings:
             "send_files": self.send_files,
             "proxy": self.proxy,
             "ca_file": self.ca_file,
+            "insecure_tls": self.insecure_tls,
             "timeout": self.timeout,
             "bot_username": self.bot_username,
             "chat_name": self.chat_name,
@@ -227,7 +232,7 @@ def read_config_file(path: Path) -> Dict[str, Any]:
 
 
 def _env_value(name: str, value: str) -> Any:
-    if name in {"TELEGRAM_NOTIFY_ENABLED", "TELEGRAM_NOTIFY_SEND_FILES"}:
+    if name in {"TELEGRAM_NOTIFY_ENABLED", "TELEGRAM_NOTIFY_SEND_FILES", "TELEGRAM_NOTIFY_INSECURE_TLS"}:
         return as_bool(value, name)
     if name in {"TELEGRAM_NOTIFY_MAX_LENGTH"}:
         try:
@@ -359,6 +364,11 @@ class TelegramClient:
             self.opener = urllib.request.build_opener(*handlers)
 
     def _ssl_context(self) -> ssl.SSLContext:
+        if self.settings.insecure_tls:
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            return context
         if not self.settings.ca_file:
             return ssl.create_default_context()
         ca_path = Path(self.settings.ca_file).expanduser()
@@ -528,7 +538,7 @@ class TelegramClient:
             hint = (
                 "TLS certificate verification failed. If a corporate proxy is in use, export its root CA "
                 "as PEM and set TELEGRAM_NOTIFY_CA_FILE or rerun configure with --ca-file. "
-                "TLS verification was not disabled."
+                "For an intentionally trusted local environment, rerun configure with --insecure-tls."
             )
             return TelegramNetworkError(hint)
         return TelegramNetworkError(redact(f"network request failed: {reason}", self.settings.bot_token))
@@ -667,6 +677,7 @@ def cli_overrides(args: argparse.Namespace) -> Dict[str, Any]:
         "max_length": getattr(args, "max_length", None),
         "oversize": getattr(args, "oversize", None),
         "ca_file": getattr(args, "ca_file", None),
+        "insecure_tls": getattr(args, "insecure_tls", None),
         "timeout": getattr(args, "timeout", None),
         "proxy": getattr(args, "proxy", None),
     }
@@ -683,6 +694,9 @@ def add_transport_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-length", type=int, help="visible message length before splitting")
     parser.add_argument("--oversize", choices=["split", "truncate"], help="oversize behavior")
     parser.add_argument("--ca-file", type=Path, help="PEM CA bundle for a corporate HTTPS proxy")
+    tls = parser.add_mutually_exclusive_group()
+    tls.add_argument("--insecure-tls", dest="insecure_tls", action="store_true", help="disable TLS certificate verification (explicit local opt-in)")
+    tls.add_argument("--secure-tls", dest="insecure_tls", action="store_false", help="keep TLS certificate verification enabled")
     parser.add_argument("--timeout", type=float, help="network timeout in seconds")
     parser.add_argument("--proxy", help=argparse.SUPPRESS)
 
@@ -887,6 +901,9 @@ def handle_configure(argv: Sequence[str], prog: str) -> int:
     parser.add_argument("--max-length", type=int)
     parser.add_argument("--oversize", choices=["split", "truncate"])
     parser.add_argument("--ca-file", type=Path, help="PEM CA bundle for a corporate HTTPS proxy")
+    tls = parser.add_mutually_exclusive_group()
+    tls.add_argument("--insecure-tls", dest="insecure_tls", action="store_true", help="disable TLS certificate verification (explicit local opt-in)")
+    tls.add_argument("--secure-tls", dest="insecure_tls", action="store_false", help="keep TLS certificate verification enabled")
     parser.add_argument("--timeout", type=float)
     parser.add_argument("--proxy", help=argparse.SUPPRESS)
     files = parser.add_mutually_exclusive_group()
@@ -903,6 +920,11 @@ def handle_configure(argv: Sequence[str], prog: str) -> int:
     if not validate_bot_token(token):
         raise ConfigError("bot token has an invalid shape")
     ca_default = os.environ.get("TELEGRAM_NOTIFY_CA_FILE") or existing.get("ca_file")
+    insecure_tls_default = os.environ.get("TELEGRAM_NOTIFY_INSECURE_TLS")
+    if insecure_tls_default is not None:
+        insecure_tls_default = _env_value("TELEGRAM_NOTIFY_INSECURE_TLS", insecure_tls_default)
+    else:
+        insecure_tls_default = existing.get("insecure_tls", False)
     proxy_default = os.environ.get("TELEGRAM_NOTIFY_PROXY") or existing.get("proxy")
     timeout_default = os.environ.get("TELEGRAM_NOTIFY_TIMEOUT") or existing.get("timeout", 15)
     probe_values = dict(
@@ -910,6 +932,7 @@ def handle_configure(argv: Sequence[str], prog: str) -> int:
         bot_token=token,
         chat_id=args.chat_id or existing.get("chat_id", ""),
         ca_file=args.ca_file or ca_default,
+        insecure_tls=args.insecure_tls if args.insecure_tls is not None else insecure_tls_default,
         proxy=args.proxy or proxy_default,
         timeout=args.timeout if args.timeout is not None else timeout_default,
     )
@@ -985,6 +1008,7 @@ def handle_configure(argv: Sequence[str], prog: str) -> int:
 
     saved_values = dict(existing, enabled=True, bot_token=token, sender=sender, format=fmt, max_length=max_len,
                         oversize=oversize, timeout=timeout, proxy=proxy or None, ca_file=ca_file or None,
+                        insecure_tls=args.insecure_tls if args.insecure_tls is not None else insecure_tls_default,
                         send_files=send_files, bot_username=username)
     if scope_project:
         projects = dict(existing_projects)
@@ -1039,6 +1063,7 @@ def handle_status(argv: Sequence[str], prog: str) -> int:
     print(f"Chat: {settings.chat_name or ('configured' if settings.chat_id else 'not configured')}")
     if settings.message_thread_id:
         print(f"Topic: {settings.topic_name or ('thread ' + settings.message_thread_id)}")
+    print("TLS: certificate verification DISABLED (explicit opt-in)" if settings.insecure_tls else "TLS: certificate verification enabled")
     print("Token: configured (hidden)" if settings.bot_token else "Token: not configured")
     print(f"Config: {settings.path}")
     if args.no_check or not settings.bot_token:
@@ -1072,6 +1097,7 @@ def handle_doctor(argv: Sequence[str], prog: str) -> int:
         if settings.ca_file:
             ca_path = Path(settings.ca_file).expanduser()
             checks.append(("CA file", ca_path.is_file(), str(ca_path)))
+        checks.append(("TLS verification", True, "DISABLED (explicit opt-in)" if settings.insecure_tls else "enabled"))
         if settings.bot_token and validate_bot_token(settings.bot_token):
             try:
                 TelegramClient(settings).get_me()
