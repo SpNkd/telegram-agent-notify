@@ -17,6 +17,14 @@ These screenshots use demo data only; no real bot token or chat is included.
 
 ![Example configuration flow](docs/images/configure.png)
 
+The setup wizard discovers a destination from a message sent in the exact group or topic:
+
+![Automatic group and topic discovery](docs/images/destination-discovery.png)
+
+Project overrides keep different repositories on different Telegram routes while preserving a default:
+
+![Default and per-project Telegram routing](docs/images/project-routing.png)
+
 ## Install
 
 Requirements: Python 3.9 or newer. No `pip install` and no runtime packages are needed.
@@ -34,7 +42,7 @@ The installer adds `telegram-notify` to `~/.local/bin` and asks whether to insta
 Windows PowerShell:
 
 ```powershell
-git clone https://github.com/OWNER/telegram-agent-notify.git
+git clone https://github.com/SpNkd/telegram-agent-notify.git
 Set-Location telegram-agent-notify
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
