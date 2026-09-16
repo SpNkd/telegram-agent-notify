@@ -1,4 +1,5 @@
 import json
+import os
 import ssl
 import stat
 import tempfile
@@ -174,7 +175,10 @@ class CoreTests(unittest.TestCase):
             path = Path(directory) / "nested" / "config.json"
             settings = Settings.from_mapping({"bot_token": TOKEN, "chat_id": "1"}, path)
             save_settings(settings)
-            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            if os.name == "nt":
+                self.assertTrue(path.is_file())
+            else:
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
             self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["bot_token"], TOKEN)
 
     def test_html_escaping_is_safe(self):
