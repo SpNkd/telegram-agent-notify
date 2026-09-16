@@ -28,7 +28,7 @@ telegram-notify completion \
 
 For an unsuccessful task, use `--status failure`, `--error`, and optionally `--last-step`. Add repeated `--changed-file` flags only for a short, relevant list. Keep the message a summary, never a transcript.
 
-If delivery fails, continue with the ordinary final response: the CLI reports a warning and is non-fatal by default. Do not send stdout, full transcripts, secrets, `.env` files, credentials, private keys, or arbitrary files. `telegram-notify send-file` is allowed only when the user explicitly names the file and the CLI's secret-file guard permits it.
+If delivery fails, continue with the ordinary final response: the CLI reports a warning and is non-fatal by default. Do not send stdout, full transcripts, secrets, `.env` files, credentials, private keys, or arbitrary files. `telegram-notify send-file` is allowed only when the user explicitly names the file and the CLI's secret-file guard permits it. PNG/JPEG files are sent as photo previews; other formats are sent as documents. Use `--as-document` when an image must remain a downloadable file.
 
 If setup is needed, direct the user to run `telegram-notify configure`; do not request that a bot token be stored in the project. The optional lifecycle hook in this repository reports only that a Claude session ended and must not replace this explicit completion-summary workflow.
 

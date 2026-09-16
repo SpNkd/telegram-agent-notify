@@ -7,6 +7,8 @@ Small, dependency-free Telegram notifications for Codex CLI, Claude Code, and ot
 
 Русская версия: [README.ru.md](README.ru.md).
 
+> AI coding agents: if a user asks you to install or use this repository, read [AGENTS.md](AGENTS.md) first.
+
 The design is intentionally simple: the agent finishes the task, sends one short completion summary, and then returns its normal final response. It does not mirror stdout or send progress for every tool call.
 
 ## Demo
@@ -175,13 +177,14 @@ telegram-notify completion \
   --last-step "cargo build --release"
 ```
 
-Send a file only when explicitly requested:
+Send a document or image only when explicitly requested:
 
 ```bash
 telegram-notify send-file ./report.md --caption "Full report"
+telegram-notify send-file ./screenshot.png --caption "Screenshot"
 ```
 
-The command allows text, Markdown, logs, and small reports. It refuses obvious secret filenames such as `.env`, `*.pem`, `*.key`, `id_rsa`, `credentials*`, and `secrets*` unless `--force` is explicitly supplied. It never discovers or uploads files automatically.
+The command allows documents, Markdown, logs, small reports, and images up to 10 MiB. PNG and JPEG files are sent as Telegram photos with a preview; other formats are sent as documents. Use `--as-document` when an image must remain a downloadable file. It refuses obvious secret filenames such as `.env`, `*.pem`, `*.key`, `id_rsa`, `credentials*`, and `secrets*` unless `--force` is explicitly supplied. It never discovers or uploads files automatically.
 
 ## Codex CLI
 

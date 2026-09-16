@@ -24,6 +24,7 @@ from src.telegram_notify import (  # noqa: E402
     find_targets_for_code,
     format_discovery_command,
     format_completion,
+    is_photo_file,
     load_from_args,
     load_settings,
     prepare_chunks,
@@ -305,6 +306,33 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(timeout, 15)
         self.assertNotIn(TOKEN.encode(), request.data)
         self.assertIn(b"chat_id=1", request.data)
+
+    def test_png_is_sent_as_photo_with_preview(self):
+        settings = Settings.from_mapping({"bot_token": TOKEN, "chat_id": "1"}, Path("config.json"))
+        opener = FakeOpener()
+        client = TelegramClient(settings, opener=opener)
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "screenshot.png"
+            image.write_bytes(b"not-a-real-png-for-multipart-test")
+            self.assertTrue(is_photo_file(image))
+            client.send_photo(image, "Screenshot")
+        request, _timeout = opener.requests[0]
+        self.assertIn(b"/sendPhoto", request.full_url.encode())
+        self.assertIn(b'name="photo"', request.data)
+        self.assertNotIn(b'name="document"', request.data)
+
+    def test_non_image_is_sent_as_document(self):
+        settings = Settings.from_mapping({"bot_token": TOKEN, "chat_id": "1"}, Path("config.json"))
+        opener = FakeOpener()
+        client = TelegramClient(settings, opener=opener)
+        with tempfile.TemporaryDirectory() as directory:
+            document = Path(directory) / "report.md"
+            document.write_text("report", encoding="utf-8")
+            self.assertFalse(is_photo_file(document))
+            client.send_document(document)
+        request, _timeout = opener.requests[0]
+        self.assertIn(b"/sendDocument", request.full_url.encode())
+        self.assertIn(b'name="document"', request.data)
 
 
 if __name__ == "__main__":

@@ -26,12 +26,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-VERSION = "0.1.4"
+VERSION = "0.1.5"
 DEFAULT_MAX_LENGTH = 3900
 MAX_TELEGRAM_TEXT_LENGTH = 4096
 MAX_FILE_BYTES = 10 * 1024 * 1024
 DISCOVERY_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 DISCOVERY_WAIT_SECONDS = 15
+PHOTO_MIME_TYPES = {"image/jpeg", "image/png"}
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "enabled": True,
@@ -404,7 +405,13 @@ class TelegramClient:
             raise self._network_error(exc) from None
         return self._decode(raw, None)
 
-    def _post_multipart(self, method: str, fields: Mapping[str, Any], file_path: Path) -> Any:
+    def _post_multipart(
+        self,
+        method: str,
+        fields: Mapping[str, Any],
+        file_path: Path,
+        file_field: str = "document",
+    ) -> Any:
         require_credentials(self.settings)
         boundary = "----telegram-agent-notify-" + uuid.uuid4().hex
         chunks: List[bytes] = []
@@ -427,7 +434,7 @@ class TelegramClient:
         chunks.extend(
             [
                 f"--{boundary}\r\n".encode(),
-                f'Content-Disposition: form-data; name="document"; filename="{file_path.name}"\r\n'.encode(),
+                f'Content-Disposition: form-data; name="{file_field}"; filename="{file_path.name}"\r\n'.encode(),
                 f"Content-Type: {mime}\r\n\r\n".encode(),
                 file_bytes,
                 b"\r\n",
@@ -557,6 +564,16 @@ class TelegramClient:
                 fields["parse_mode"] = "HTML"
         return self._post_multipart("sendDocument", fields, file_path)
 
+    def send_photo(self, file_path: Path, caption: Optional[str] = None) -> Any:
+        fields: Dict[str, Any] = {"chat_id": self.settings.chat_id}
+        if self.settings.message_thread_id:
+            fields["message_thread_id"] = self.settings.message_thread_id
+        if caption:
+            fields["caption"] = prepare_chunks(caption, 1024, "truncate", self.settings.format)[0][0]
+            if self.settings.format == "HTML":
+                fields["parse_mode"] = "HTML"
+        return self._post_multipart("sendPhoto", fields, file_path, file_field="photo")
+
 
 def prepare_chunks(text: str, max_length: int, oversize: str, fmt: str) -> List[Tuple[str, Optional[str]]]:
     safe_text = str(text or "")
@@ -665,6 +682,11 @@ def validate_file_for_sending(path: Path, force: bool = False) -> Path:
     if size > MAX_FILE_BYTES:
         raise ConfigError("file is larger than the 10 MiB safety limit")
     return resolved
+
+
+def is_photo_file(path: Path) -> bool:
+    """Return whether Telegram can show this common image type as a photo preview."""
+    return mimetypes.guess_type(path.name)[0] in PHOTO_MIME_TYPES
 
 
 def program_name() -> str:
@@ -1199,10 +1221,11 @@ def handle_toggle(argv: Sequence[str], enable: bool, prog: str) -> int:
 
 
 def handle_send_file(argv: Sequence[str], prog: str) -> int:
-    parser = argparse.ArgumentParser(prog=prog, description="Explicitly send one report file to Telegram.")
+    parser = argparse.ArgumentParser(prog=prog, description="Explicitly send one file or image to Telegram.")
     parser.add_argument("path", type=Path)
     parser.add_argument("--caption", default="")
     parser.add_argument("--force", action="store_true", help="allow a filename that looks secret")
+    parser.add_argument("--as-document", action="store_true", help="send an image as a file instead of a photo preview")
     parser.add_argument("--strict", action="store_true")
     add_transport_options(parser)
     args = parser.parse_args(list(argv))
@@ -1216,8 +1239,13 @@ def handle_send_file(argv: Sequence[str], prog: str) -> int:
             return 0
         path = validate_file_for_sending(args.path, args.force)
         require_credentials(settings)
-        TelegramClient(settings).send_document(path, args.caption or None)
-        print("✓ Telegram file delivered.")
+        client = TelegramClient(settings)
+        if is_photo_file(path) and not args.as_document:
+            client.send_photo(path, args.caption or None)
+            print("✓ Telegram photo delivered.")
+        else:
+            client.send_document(path, args.caption or None)
+            print("✓ Telegram file delivered.")
         return 0
     except (ConfigError, TelegramError) as exc:
         print(f"WARNING: Telegram file delivery failed: {redact(exc, settings.bot_token)}", file=sys.stderr)

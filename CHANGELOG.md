@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here.
 
+## [0.1.5] - 2026-09-16
+
+- Added photo uploads with previews for PNG and JPEG files while retaining document uploads for other files.
+- Added `send-file --as-document` for sending images without photo conversion.
+
 ## [0.1.4] - 2026-09-16
 
 - Made code-based destination discovery wait briefly for Telegram delivery and read through paginated pending updates.

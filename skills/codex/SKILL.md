@@ -32,7 +32,7 @@ Trigger only when the user explicitly asks for a Telegram notification, asks to 
 
 4. Continue with the ordinary final response even if Telegram is unavailable. The CLI treats delivery failure as a warning and returns success by default so notification cannot mask the coding task's outcome.
 
-Do not call the command after each edit, tool call, test, or intermediate milestone. Do not send stdout, full transcripts, secrets, `.env` contents, credentials, private keys, or arbitrary files. Only send a file when the user explicitly names it and the CLI's secret-file guard allows it.
+Do not call the command after each edit, tool call, test, or intermediate milestone. Do not send stdout, full transcripts, secrets, `.env` contents, credentials, private keys, or arbitrary files. Only send a file when the user explicitly names it and the CLI's secret-file guard allows it. If the user explicitly asks for a named document or image, send it with `telegram-notify send-file PATH --caption "..."` as a separate deliberate upload; PNG/JPEG files become photo previews, while other formats are sent as documents. Add `--as-document` when an image must remain a file.
 
 If `telegram-notify` is not on `PATH`, use the installed absolute path or tell the user that setup is required; never ask the user to paste a bot token into the repository. To configure or diagnose the integration, use `telegram-notify configure`, `telegram-notify test`, or `telegram-notify doctor` only when the user requests setup or troubleshooting.
 

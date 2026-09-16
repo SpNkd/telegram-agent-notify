@@ -4,6 +4,8 @@
 
 [English README](README.md) · [MIT License](LICENSE)
 
+> AI coding agents: если пользователь просит установить или использовать этот репозиторий, сначала прочитайте [AGENTS.md](AGENTS.md).
+
 Агент отправляет одно короткое резюме после завершения задачи и затем возвращает обычный финальный ответ. Вывод команд и промежуточный прогресс не пересылаются.
 
 Все изображения используют только демонстрационные данные.
@@ -113,7 +115,13 @@ telegram-notify completion --status success --task "..." --summary "..."
 telegram-notify send-file ./report.md --caption "Full report"
 ```
 
-`send-file` работает только по явному запросу, ограничен 10 MiB и блокирует очевидные имена секретов (`.env`, `*.pem`, `*.key`, `credentials*`, `secrets*`) без `--force`.
+`send-file` работает только по явному запросу и ограничен 10 MiB. PNG и JPEG отправляются как фотографии с предпросмотром, остальные форматы — как документы. Для отправки картинки именно файлом используйте `--as-document`:
+
+```bash
+telegram-notify send-file ./screenshot.png --caption "Скриншот" --as-document
+```
+
+Очевидные имена секретов (`.env`, `*.pem`, `*.key`, `credentials*`, `secrets*`) блокируются без `--force`. Файлы никогда не загружаются автоматически.
 
 ## Codex и Claude Code
 
