@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 DEFAULT_MAX_LENGTH = 3900
 MAX_TELEGRAM_TEXT_LENGTH = 4096
 MAX_FILE_BYTES = 10 * 1024 * 1024

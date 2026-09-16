@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [0.1.1] - 2026-09-16
 
 - Fixed explicit `--codex` and `--claude` installer flags so `--yes` does not install the other skill unexpectedly.
 - Added an explicit `--insecure-tls` opt-in for trusted local HTTPS interception environments.
