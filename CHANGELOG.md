@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+- Documented the maintainer-approved local TLS exception for Telegram completion and explicit file delivery.
+
 ## [0.1.5] - 2026-09-16
 
 - Added photo uploads with previews for PNG and JPEG files while retaining document uploads for other files.

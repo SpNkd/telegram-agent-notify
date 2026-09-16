@@ -135,6 +135,8 @@ telegram-notify configure --insecure-tls
 
 This persists the choice in the local config. Re-enable verification with `telegram-notify configure --secure-tls`. The insecure mode disables hostname and certificate verification for Telegram HTTPS requests; never use it on an untrusted network.
 
+For the maintainer's already-approved local setup, the same explicit `--insecure-tls` flag may be added to `completion` or `send-file` if delivery fails with `CERTIFICATE_VERIFY_FAILED`. This is not the default for new installations.
+
 ## Manual usage
 
 Short form:
