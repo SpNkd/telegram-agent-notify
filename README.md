@@ -26,6 +26,8 @@ Set-Location telegram-agent-notify
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
+On Windows the launcher is placed in `%LOCALAPPDATA%\\telegram-agent-notify\\telegram-notify.cmd`; add that directory to `PATH` or call the launcher by its full path.
+
 For a non-interactive install:
 
 ```bash
@@ -60,6 +62,8 @@ Configuration is stored outside the repository:
 
 - Linux/macOS: `$XDG_CONFIG_HOME/telegram-notify/config.json`, or `~/.config/telegram-notify/config.json` when `XDG_CONFIG_HOME` is unset.
 - Windows: `%APPDATA%\\telegram-notify\\config.json`.
+
+During `configure`, you can choose the sender name, Telegram topic thread, format, maximum length, proxy, timeout, and whether explicit file uploads are allowed.
 
 For an alternate location, set `TELEGRAM_NOTIFY_CONFIG`. Settings resolve in this order: CLI options, environment variables, config file, defaults.
 
@@ -184,4 +188,3 @@ The test suite uses fake HTTP openers. A real Telegram token is never needed to 
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
