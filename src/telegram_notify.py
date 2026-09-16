@@ -914,7 +914,7 @@ def choose_chat(client: TelegramClient, bot_username: str = "") -> Target:
         return manual, thread or None, "Configured chat", f"thread {thread}" if thread else ""
     if len(targets) == 1:
         target = targets[0]
-        print(f"✓ Destination found: {format_target(target)}")
+        print(f"Destination found: {format_target(target)}")
         return target
     print("Found destinations:")
     for index, target in enumerate(targets, 1):
