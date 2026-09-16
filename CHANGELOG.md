@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## [0.1.4] - 2026-09-16
+
+- Made code-based destination discovery wait briefly for Telegram delivery and read through paginated pending updates.
+
 ## [0.1.3] - 2026-09-16
 
 - Added one-time `/start CODE` destination discovery for reliable group and topic configuration, including Telegram privacy mode.

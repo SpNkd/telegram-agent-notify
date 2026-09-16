@@ -17,6 +17,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -25,11 +26,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 DEFAULT_MAX_LENGTH = 3900
 MAX_TELEGRAM_TEXT_LENGTH = 4096
 MAX_FILE_BYTES = 10 * 1024 * 1024
 DISCOVERY_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+DISCOVERY_WAIT_SECONDS = 15
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "enabled": True,
@@ -485,8 +487,8 @@ class TelegramClient:
         result = self._call("getMe")
         return result if isinstance(result, dict) else {}
 
-    def get_updates(self) -> List[Mapping[str, Any]]:
-        result = self._call("getUpdates", {"limit": 100, "timeout": 0})
+    def get_updates(self, offset: Optional[int] = None, timeout: int = 0) -> List[Mapping[str, Any]]:
+        result = self._call("getUpdates", {"limit": 100, "timeout": timeout, "offset": offset})
         return [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
 
     def send_message(self, raw_text: str) -> int:
@@ -879,6 +881,40 @@ def find_targets_for_code(updates: Iterable[Mapping[str, Any]], code: str) -> Li
     return find_targets(matching_updates)
 
 
+def _pending_updates(client: Any) -> List[Mapping[str, Any]]:
+    """Read all currently pending update pages so an old queue cannot hide the code."""
+    updates: List[Mapping[str, Any]] = []
+    offset: Optional[int] = None
+    for _ in range(10):
+        try:
+            batch = client.get_updates(offset=offset, timeout=0)
+        except TypeError:
+            # Keep compatibility with small test doubles and older integrations.
+            batch = client.get_updates()
+        if not batch:
+            break
+        updates.extend(batch)
+        if len(batch) < 100:
+            break
+        update_ids = [item.get("update_id") for item in batch if isinstance(item.get("update_id"), int)]
+        if not update_ids:
+            break
+        offset = max(update_ids) + 1
+    return updates
+
+
+def wait_for_discovery_target(client: Any, code: str, wait_seconds: float = DISCOVERY_WAIT_SECONDS) -> List[Target]:
+    """Allow a short Telegram delivery delay before falling back to manual IDs."""
+    deadline = time.monotonic() + max(0.0, wait_seconds)
+    while True:
+        targets = find_targets_for_code(_pending_updates(client), code)
+        if targets:
+            return targets
+        if time.monotonic() >= deadline:
+            return []
+        time.sleep(0.5)
+
+
 def find_chats(updates: Iterable[Mapping[str, Any]]) -> List[Tuple[str, str]]:
     """Backward-compatible chat-only view of discovered updates."""
     found: Dict[str, str] = {}
@@ -903,7 +939,8 @@ def choose_chat(client: TelegramClient, bot_username: str = "") -> Target:
     print("Send it directly to the bot, or inside the target group/topic.")
     print("For a topic, open that topic before sending the command.")
     input("Press Enter here after sending it: ")
-    targets = find_targets_for_code(client.get_updates(), code)
+    print("Waiting for Telegram to deliver the command...")
+    targets = wait_for_discovery_target(client, code)
     if not targets:
         print(f"No message with discovery code {code} was found.")
         print("Make sure the bot is a member of the group and send the command exactly as shown.")

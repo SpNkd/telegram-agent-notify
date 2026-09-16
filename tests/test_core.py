@@ -127,6 +127,25 @@ class CoreTests(unittest.TestCase):
             "/start@remnawv_bot TN-ABCD2345",
         )
 
+    def test_pending_updates_reads_next_page_when_queue_is_full(self):
+        from src.telegram_notify import _pending_updates
+
+        first_page = [{"update_id": index} for index in range(100)]
+        second_page = [{"update_id": 100, "message": {"text": "latest"}}]
+
+        class PagedClient:
+            def __init__(self):
+                self.offsets = []
+
+            def get_updates(self, offset=None, timeout=0):
+                self.offsets.append(offset)
+                return first_page if offset is None else second_page
+
+        client = PagedClient()
+        updates = _pending_updates(client)
+        self.assertEqual(len(updates), 101)
+        self.assertEqual(client.offsets, [None, 100])
+
     def test_choose_chat_uses_client_for_update_discovery(self):
         class UpdatesClient:
             def get_updates(self):
