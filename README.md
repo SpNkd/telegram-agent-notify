@@ -2,7 +2,7 @@
 
 Small, dependency-free Telegram notifications for Codex CLI, Claude Code, and other coding agents.
 
-[![Tests](https://github.com/OWNER/telegram-agent-notify/actions/workflows/test.yml/badge.svg)](https://github.com/OWNER/telegram-agent-notify/actions/workflows/test.yml)
+[![Tests](https://github.com/SpNkd/telegram-agent-notify/actions/workflows/test.yml/badge.svg)](https://github.com/SpNkd/telegram-agent-notify/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Русская версия: [README.ru.md](README.ru.md).
@@ -24,7 +24,7 @@ Requirements: Python 3.9 or newer. No `pip install` and no runtime packages are 
 Linux/macOS:
 
 ```bash
-git clone https://github.com/OWNER/telegram-agent-notify.git
+git clone https://github.com/SpNkd/telegram-agent-notify.git
 cd telegram-agent-notify
 ./install.sh
 ```

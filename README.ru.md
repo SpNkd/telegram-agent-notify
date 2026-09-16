@@ -11,7 +11,7 @@
 Требуется Python 3.9+. Runtime-зависимостей и `pip install` нет.
 
 ```bash
-git clone https://github.com/OWNER/telegram-agent-notify.git
+git clone https://github.com/SpNkd/telegram-agent-notify.git
 cd telegram-agent-notify
 ./install.sh --yes --codex --claude
 telegram-notify configure
