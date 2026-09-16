@@ -1,0 +1,5 @@
+interface:
+  display_name: "Telegram completion notification"
+  short_description: "Send a concise Telegram summary after a completed coding task"
+  default_prompt: "Use this skill only when the user explicitly requests a Telegram completion notification."
+

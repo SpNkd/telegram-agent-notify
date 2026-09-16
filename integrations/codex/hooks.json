@@ -1,0 +1,18 @@
+{
+  "description": "Optional generic Codex session-end notification. Use the completion skill for a task summary.",
+  "hooks": {
+    "SessionEnd": [
+      {
+        "matcher": "other",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "telegram-notify hook --agent Codex --event SessionEnd",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}
+
