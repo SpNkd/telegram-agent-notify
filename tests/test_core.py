@@ -6,6 +6,7 @@ import unittest
 from argparse import Namespace
 from pathlib import Path
 from urllib.error import URLError
+from unittest.mock import patch
 
 import sys
 
@@ -17,6 +18,7 @@ from src.telegram_notify import (  # noqa: E402
     TelegramClient,
     TelegramNetworkError,
     apply_project_override,
+    choose_chat,
     find_targets,
     format_completion,
     load_from_args,
@@ -100,6 +102,23 @@ class CoreTests(unittest.TestCase):
             ]
         )
         self.assertEqual(targets, [("-100123", "77", "Engineering", "Releases")])
+
+    def test_choose_chat_uses_client_for_update_discovery(self):
+        class UpdatesClient:
+            def get_updates(self):
+                return [
+                    {
+                        "message": {
+                            "chat": {"id": "-100123", "title": "Engineering"},
+                            "message_thread_id": 77,
+                            "forum_topic_created": {"name": "Releases"},
+                        }
+                    }
+                ]
+
+        with patch("builtins.input", side_effect=["", "y"]):
+            target = choose_chat(UpdatesClient())
+        self.assertEqual(target, ("-100123", "77", "Engineering", "Releases"))
 
     def test_project_target_overrides_default_destination(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## [0.1.2] - 2026-09-16
+
+- Fixed `configure` destination discovery after successful bot validation by passing a Telegram client to the update lookup.
+
 ## [0.1.1] - 2026-09-16
 
 - Fixed explicit `--codex` and `--claude` installer flags so `--yes` does not install the other skill unexpectedly.

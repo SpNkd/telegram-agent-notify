@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 DEFAULT_MAX_LENGTH = 3900
 MAX_TELEGRAM_TEXT_LENGTH = 4096
 MAX_FILE_BYTES = 10 * 1024 * 1024
@@ -981,7 +981,7 @@ def handle_configure(argv: Sequence[str], prog: str) -> int:
             str(destination_defaults.get("topic_name", "") or ""),
         )
     else:
-        target = choose_chat(probe)
+        target = choose_chat(TelegramClient(probe))
     chat_id, thread, chat_name, topic_name = target
 
     def optional(name: str, flag_value: Any, old_key: str, default: str, source: Mapping[str, Any] = existing) -> str:
