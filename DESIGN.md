@@ -21,7 +21,11 @@ The config path is `TELEGRAM_NOTIFY_CONFIG` when set; otherwise it is `$XDG_CONF
 
 Resolution order is CLI option, environment variable, config file, built-in default. The token and chat can be supplied through `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, and `TELEGRAM_MESSAGE_THREAD_ID`; additional `TELEGRAM_NOTIFY_*` variables cover ordinary preferences.
 
+The default destination is stored in the top-level `chat_id` and `message_thread_id` fields. A `projects` object can store destination-only overrides keyed by canonical Git repository roots. `configure --project-dir .` discovers the current repository root and adds one override; `send` and `completion` automatically select it when run from that repository. `--default` updates the shared fallback. Only destination metadata is overridden per project, never the bot token.
+
 Messages use Telegram HTML mode by default, but all dynamic content is escaped as text. Long messages are split at a conservative visible length of 3900 characters. File sending is always explicit, limited to 10 MiB, and rejects obvious secret filenames unless `--force` is supplied.
+
+HTTPS uses Python's default certificate verification. Environments with an HTTPS-inspecting corporate proxy can provide its root CA PEM bundle with `--ca-file` or `TELEGRAM_NOTIFY_CA_FILE`; verification is never disabled.
 
 ## Agent integrations
 
@@ -48,4 +52,3 @@ References: [Codex skills](https://developers.openai.com/codex/skills/), [Codex 
 The installed Claude Code CLI is `2.1.272`. Official Claude Code documentation confirms that personal skills live in `~/.claude/skills/<name>/SKILL.md`, and hooks are command handlers in JSON settings such as `~/.claude/settings.json`. `SessionEnd` is available, while `Stop` is per-turn and would violate the one-message completion default. The project therefore installs the Claude skill to `~/.claude/skills/telegram-notify` and provides a separate `SessionEnd` fragment for users who explicitly want generic lifecycle notifications.
 
 References: [Claude Code skills](https://code.claude.com/docs/en/slash-commands), [Claude Code hooks](https://code.claude.com/docs/en/hooks), [Claude Code settings](https://code.claude.com/docs/en/settings).
-

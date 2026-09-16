@@ -11,7 +11,9 @@ import mimetypes
 import os
 import re
 import socket
+import ssl
 import stat
+import subprocess
 import sys
 import tempfile
 import urllib.error
@@ -38,9 +40,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "oversize": "split",
     "send_files": True,
     "proxy": None,
+    "ca_file": None,
     "timeout": 15,
     "bot_username": "",
     "chat_name": "",
+    "topic_name": "",
+    "projects": {},
 }
 
 ENV_FIELDS = {
@@ -54,6 +59,7 @@ ENV_FIELDS = {
     "TELEGRAM_NOTIFY_OVERSIZE": "oversize",
     "TELEGRAM_NOTIFY_SEND_FILES": "send_files",
     "TELEGRAM_NOTIFY_PROXY": "proxy",
+    "TELEGRAM_NOTIFY_CA_FILE": "ca_file",
     "TELEGRAM_NOTIFY_TIMEOUT": "timeout",
 }
 
@@ -97,9 +103,12 @@ class Settings:
     oversize: str
     send_files: bool
     proxy: Optional[str]
+    ca_file: Optional[str]
     timeout: float
     bot_username: str
     chat_name: str
+    topic_name: str
+    projects: Dict[str, Dict[str, Any]]
     path: Path
 
     @classmethod
@@ -129,6 +138,14 @@ class Settings:
             raise ConfigError("oversize must be split or truncate")
 
         thread = values.get("message_thread_id")
+        raw_projects = values.get("projects", {}) or {}
+        if not isinstance(raw_projects, dict):
+            raise ConfigError("projects must be an object")
+        projects: Dict[str, Dict[str, Any]] = {}
+        for project, override in raw_projects.items():
+            if not isinstance(override, dict):
+                raise ConfigError(f"project target for {project} must be an object")
+            projects[str(project)] = dict(override)
         return cls(
             enabled=as_bool(values.get("enabled", True), "enabled"),
             bot_token=str(values.get("bot_token", "") or "").strip(),
@@ -140,9 +157,12 @@ class Settings:
             oversize=oversize,
             send_files=as_bool(values.get("send_files", True), "send_files"),
             proxy=(str(values["proxy"]).strip() if values.get("proxy") else None),
+            ca_file=(str(values["ca_file"]).strip() if values.get("ca_file") else None),
             timeout=timeout,
             bot_username=str(values.get("bot_username", "") or "").strip(),
             chat_name=str(values.get("chat_name", "") or "").strip(),
+            topic_name=str(values.get("topic_name", "") or "").strip(),
+            projects=projects,
             path=path,
         )
 
@@ -158,9 +178,12 @@ class Settings:
             "oversize": self.oversize,
             "send_files": self.send_files,
             "proxy": self.proxy,
+            "ca_file": self.ca_file,
             "timeout": self.timeout,
             "bot_username": self.bot_username,
             "chat_name": self.chat_name,
+            "topic_name": self.topic_name,
+            "projects": self.projects,
         }
 
 
@@ -238,6 +261,45 @@ def load_settings(
     return Settings.from_mapping(values, resolved_path)
 
 
+PROJECT_OVERRIDE_FIELDS = {"chat_id", "message_thread_id", "chat_name", "topic_name"}
+
+
+def detect_project_root(start: Optional[Path] = None) -> Path:
+    candidate = Path(start or Path.cwd()).expanduser()
+    if candidate.exists() and candidate.is_file():
+        candidate = candidate.parent
+    try:
+        candidate = candidate.resolve()
+    except OSError:
+        candidate = Path.cwd().resolve()
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(candidate),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return candidate
+    root = result.stdout.strip()
+    return Path(root).expanduser().resolve() if root else candidate
+
+
+def project_key(path: Optional[Path] = None) -> str:
+    return str(detect_project_root(path))
+
+
+def apply_project_override(settings: Settings, project_dir: Path) -> Settings:
+    override = settings.projects.get(project_key(project_dir))
+    if not override:
+        return settings
+    values = settings.to_mapping()
+    values.update({key: value for key, value in override.items() if key in PROJECT_OVERRIDE_FIELDS})
+    return Settings.from_mapping(values, settings.path)
+
+
 def save_settings(settings: Settings, path: Optional[Path] = None) -> Path:
     destination = Path(path or settings.path).expanduser()
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -289,12 +351,23 @@ class TelegramClient:
         self.settings = settings
         if opener is not None:
             self.opener = opener
-        elif settings.proxy:
-            self.opener = urllib.request.build_opener(
-                urllib.request.ProxyHandler({"http": settings.proxy, "https": settings.proxy})
-            )
         else:
-            self.opener = urllib.request.build_opener()
+            handlers: List[Any] = []
+            if settings.proxy:
+                handlers.append(urllib.request.ProxyHandler({"http": settings.proxy, "https": settings.proxy}))
+            handlers.append(urllib.request.HTTPSHandler(context=self._ssl_context()))
+            self.opener = urllib.request.build_opener(*handlers)
+
+    def _ssl_context(self) -> ssl.SSLContext:
+        if not self.settings.ca_file:
+            return ssl.create_default_context()
+        ca_path = Path(self.settings.ca_file).expanduser()
+        if not ca_path.is_file():
+            raise ConfigError(f"CA file does not exist: {ca_path}")
+        try:
+            return ssl.create_default_context(cafile=str(ca_path))
+        except (OSError, ssl.SSLError):
+            raise ConfigError(f"cannot load CA file as PEM certificate bundle: {ca_path}") from None
 
     def _call(self, method: str, params: Optional[Mapping[str, Any]] = None) -> Any:
         require_credentials(self.settings, require_chat=False)
@@ -314,8 +387,7 @@ class TelegramClient:
                 pass
             raise self._api_error(body, exc.code, self.settings.bot_token) from None
         except (urllib.error.URLError, TimeoutError, socket.timeout, OSError) as exc:
-            reason = getattr(exc, "reason", exc)
-            raise TelegramNetworkError(redact(f"network request failed: {reason}", self.settings.bot_token)) from None
+            raise self._network_error(exc) from None
         return self._decode(raw, None)
 
     def _post_multipart(self, method: str, fields: Mapping[str, Any], file_path: Path) -> Any:
@@ -370,8 +442,7 @@ class TelegramClient:
                 pass
             raise self._api_error(body, exc.code, self.settings.bot_token) from None
         except (urllib.error.URLError, TimeoutError, socket.timeout, OSError) as exc:
-            reason = getattr(exc, "reason", exc)
-            raise TelegramNetworkError(redact(f"network request failed: {reason}", self.settings.bot_token)) from None
+            raise self._network_error(exc) from None
         return self._decode(raw, None)
 
     @staticmethod
@@ -448,9 +519,19 @@ class TelegramClient:
                 pass
             raise self._api_error(body, exc.code, self.settings.bot_token) from None
         except (urllib.error.URLError, TimeoutError, socket.timeout, OSError) as exc:
-            reason = getattr(exc, "reason", exc)
-            raise TelegramNetworkError(redact(f"network request failed: {reason}", self.settings.bot_token)) from None
+            raise self._network_error(exc) from None
         return self._decode(raw, None)
+
+    def _network_error(self, exc: BaseException) -> TelegramNetworkError:
+        reason = getattr(exc, "reason", exc)
+        if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
+            hint = (
+                "TLS certificate verification failed. If a corporate proxy is in use, export its root CA "
+                "as PEM and set TELEGRAM_NOTIFY_CA_FILE or rerun configure with --ca-file. "
+                "TLS verification was not disabled."
+            )
+            return TelegramNetworkError(hint)
+        return TelegramNetworkError(redact(f"network request failed: {reason}", self.settings.bot_token))
 
     def send_document(self, file_path: Path, caption: Optional[str] = None) -> Any:
         fields: Dict[str, Any] = {"chat_id": self.settings.chat_id}
@@ -585,6 +666,7 @@ def cli_overrides(args: argparse.Namespace) -> Dict[str, Any]:
         "format": getattr(args, "format", None),
         "max_length": getattr(args, "max_length", None),
         "oversize": getattr(args, "oversize", None),
+        "ca_file": getattr(args, "ca_file", None),
         "timeout": getattr(args, "timeout", None),
         "proxy": getattr(args, "proxy", None),
     }
@@ -595,10 +677,12 @@ def add_transport_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--bot-token", help=argparse.SUPPRESS)
     parser.add_argument("--chat-id", help="override the destination chat id")
     parser.add_argument("--message-thread-id", help="override the Telegram topic thread id")
+    parser.add_argument("--project-dir", type=Path, help="use the destination configured for this project")
     parser.add_argument("--sender", help="sender/agent name")
     parser.add_argument("--format", choices=["HTML", "plain", "PLAIN"], help="message format (default: HTML)")
     parser.add_argument("--max-length", type=int, help="visible message length before splitting")
     parser.add_argument("--oversize", choices=["split", "truncate"], help="oversize behavior")
+    parser.add_argument("--ca-file", type=Path, help="PEM CA bundle for a corporate HTTPS proxy")
     parser.add_argument("--timeout", type=float, help="network timeout in seconds")
     parser.add_argument("--proxy", help=argparse.SUPPRESS)
 
@@ -628,7 +712,19 @@ def send_parser(prog: str, completion: bool = False) -> argparse.ArgumentParser:
 
 
 def load_from_args(args: argparse.Namespace) -> Settings:
-    return load_settings(cli_overrides(args), path=getattr(args, "config", None))
+    settings = load_settings(path=getattr(args, "config", None))
+    if settings.projects:
+        project_dir = getattr(args, "project_dir", None) or detect_project_root()
+        settings = apply_project_override(settings, project_dir)
+    values = settings.to_mapping()
+    env = os.environ
+    for env_name, field in ENV_FIELDS.items():
+        if env_name in env and env[env_name] != "":
+            values[field] = _env_value(env_name, env[env_name])
+    for key, value in cli_overrides(args).items():
+        if value is not None:
+            values[key] = value
+    return Settings.from_mapping(values, settings.path)
 
 
 def notify(settings: Settings, raw_text: str, strict: bool = False) -> bool:
@@ -689,8 +785,33 @@ def prompt(label: str, default: str = "") -> str:
     return value or default
 
 
-def find_chats(updates: Iterable[Mapping[str, Any]]) -> List[Tuple[str, str]]:
-    found: Dict[str, str] = {}
+Target = Tuple[str, Optional[str], str, str]
+
+
+def _chat_name(chat: Mapping[str, Any]) -> str:
+    name = chat.get("title") or " ".join(str(chat.get(key, "")) for key in ("first_name", "last_name")).strip()
+    username = chat.get("username")
+    if username:
+        name += f" (@{username})"
+    return name or "Telegram chat"
+
+
+def _topic_name(message: Mapping[str, Any], thread_id: Optional[str]) -> str:
+    if not thread_id:
+        return ""
+    created = message.get("forum_topic_created")
+    if isinstance(created, dict) and created.get("name"):
+        return str(created["name"])
+    reply = message.get("reply_to_message")
+    if isinstance(reply, dict):
+        reply_created = reply.get("forum_topic_created")
+        if isinstance(reply_created, dict) and reply_created.get("name"):
+            return str(reply_created["name"])
+    return f"thread {thread_id}"
+
+
+def find_targets(updates: Iterable[Mapping[str, Any]]) -> List[Target]:
+    found: Dict[Tuple[str, str], Target] = {}
     for update in updates:
         message = update.get("message") or update.get("channel_post") or update.get("edited_message")
         if not isinstance(message, dict):
@@ -699,40 +820,57 @@ def find_chats(updates: Iterable[Mapping[str, Any]]) -> List[Tuple[str, str]]:
         if not isinstance(chat, dict) or "id" not in chat:
             continue
         chat_id = str(chat["id"])
-        name = chat.get("title") or " ".join(str(chat.get(key, "")) for key in ("first_name", "last_name")).strip()
-        username = chat.get("username")
-        if username:
-            name += f" (@{username})"
-        found[chat_id] = name or "Telegram chat"
+        thread = message.get("message_thread_id")
+        thread_id = None if thread in (None, "") else str(thread)
+        target = (chat_id, thread_id, _chat_name(chat), _topic_name(message, thread_id))
+        found[(chat_id, thread_id or "")] = target
+    return list(found.values())
+
+
+def find_chats(updates: Iterable[Mapping[str, Any]]) -> List[Tuple[str, str]]:
+    """Backward-compatible chat-only view of discovered updates."""
+    found: Dict[str, str] = {}
+    for chat_id, _thread_id, name, _topic in find_targets(updates):
+        found.setdefault(chat_id, name)
     return list(found.items())
 
 
-def choose_chat(client: TelegramClient) -> Tuple[str, str]:
-    print("Send any message to the bot and press Enter.")
+def format_target(target: Target) -> str:
+    chat_id, thread_id, chat_name, topic_name = target
+    label = chat_name
+    if thread_id:
+        label += f" — topic: {topic_name or 'thread ' + thread_id}"
+    return f"{label} (chat_id {chat_id})"
+
+
+def choose_chat(client: TelegramClient) -> Target:
+    print("Send a message in the target group or topic and press Enter.")
     input()
-    chats = find_chats(client.get_updates())
-    if not chats:
+    targets = find_targets(client.get_updates())
+    if not targets:
         manual = prompt("No chat found. Enter chat_id manually")
         if not validate_chat_id(manual):
             raise ConfigError("chat_id must be a numeric id or @channelusername")
-        return manual, "Configured chat"
-    if len(chats) == 1:
-        chat_id, name = chats[0]
-        answer = prompt(f"Use chat {name} (chat_id {chat_id})? Y/n", "Y").lower()
+        thread = prompt("Topic thread id (optional; leave empty for General)")
+        return manual, thread or None, "Configured chat", f"thread {thread}" if thread else ""
+    if len(targets) == 1:
+        target = targets[0]
+        answer = prompt(f"Use {format_target(target)}? Y/n", "Y").lower()
         if answer not in {"", "y", "yes"}:
             manual = prompt("Enter chat_id manually")
             if not validate_chat_id(manual):
                 raise ConfigError("chat_id must be a numeric id or @channelusername")
-            return manual, "Configured chat"
-        return chat_id, name
-    print("Found chats:")
-    for index, (chat_id, name) in enumerate(chats, 1):
-        print(f"  {index}. {name} (chat_id {chat_id})")
-    selected = prompt("Choose a chat", "1")
+            thread = prompt("Topic thread id (optional; leave empty for General)")
+            return manual, thread or None, "Configured chat", f"thread {thread}" if thread else ""
+        return target
+    print("Found destinations:")
+    for index, target in enumerate(targets, 1):
+        print(f"  {index}. {format_target(target)}")
+    selected = prompt("Choose a destination", "1")
     try:
-        return chats[int(selected) - 1]
+        return targets[int(selected) - 1]
     except (ValueError, IndexError) as exc:
-        raise ConfigError("invalid chat selection") from exc
+        raise ConfigError("invalid destination selection") from exc
 
 
 def handle_configure(argv: Sequence[str], prog: str) -> int:
@@ -741,10 +879,14 @@ def handle_configure(argv: Sequence[str], prog: str) -> int:
     parser.add_argument("--bot-token", help=argparse.SUPPRESS)
     parser.add_argument("--chat-id", help="use a known destination chat id")
     parser.add_argument("--message-thread-id", help="use a Telegram topic thread id")
+    scope = parser.add_mutually_exclusive_group()
+    scope.add_argument("--project-dir", type=Path, help="save this destination for one project")
+    scope.add_argument("--default", action="store_true", help="save this destination as the default")
     parser.add_argument("--sender")
     parser.add_argument("--format", choices=["HTML", "plain", "PLAIN"])
     parser.add_argument("--max-length", type=int)
     parser.add_argument("--oversize", choices=["split", "truncate"])
+    parser.add_argument("--ca-file", type=Path, help="PEM CA bundle for a corporate HTTPS proxy")
     parser.add_argument("--timeout", type=float)
     parser.add_argument("--proxy", help=argparse.SUPPRESS)
     files = parser.add_mutually_exclusive_group()
@@ -760,34 +902,80 @@ def handle_configure(argv: Sequence[str], prog: str) -> int:
     token = args.bot_token or getpass.getpass("Paste Telegram bot token: ").strip()
     if not validate_bot_token(token):
         raise ConfigError("bot token has an invalid shape")
-    probe_values = dict(existing, bot_token=token, chat_id=args.chat_id or existing.get("chat_id", ""))
+    ca_default = os.environ.get("TELEGRAM_NOTIFY_CA_FILE") or existing.get("ca_file")
+    proxy_default = os.environ.get("TELEGRAM_NOTIFY_PROXY") or existing.get("proxy")
+    timeout_default = os.environ.get("TELEGRAM_NOTIFY_TIMEOUT") or existing.get("timeout", 15)
+    probe_values = dict(
+        existing,
+        bot_token=token,
+        chat_id=args.chat_id or existing.get("chat_id", ""),
+        ca_file=args.ca_file or ca_default,
+        proxy=args.proxy or proxy_default,
+        timeout=args.timeout if args.timeout is not None else timeout_default,
+    )
     probe = Settings.from_mapping(probe_values, path)
     me = TelegramClient(probe).get_me()
     username = str(me.get("username", "") or "")
     display_bot = "@" + username if username else str(me.get("first_name", "Telegram bot"))
     print(f"✓ Bot: {display_bot}")
 
-    if args.chat_id:
-        chat_id, chat_name = args.chat_id, existing.get("chat_name", "Configured chat")
-    elif existing.get("chat_id") and args.yes:
-        chat_id, chat_name = str(existing["chat_id"]), str(existing.get("chat_name", "Configured chat"))
-    else:
-        chat_id, chat_name = choose_chat(probe)
+    scope_project: Optional[Path] = None
+    if args.project_dir:
+        scope_project = detect_project_root(args.project_dir)
+    elif not args.default and not args.yes:
+        current_project = detect_project_root()
+        choice = prompt(
+            f"Save destination for [1] all projects or [2] current project ({current_project})",
+            "1",
+        )
+        if choice == "2":
+            scope_project = current_project
+        elif choice != "1":
+            raise ConfigError("choose 1 for the default or 2 for the current project")
 
-    def optional(name: str, flag_value: Any, old_key: str, default: str) -> str:
+    existing_projects = existing.get("projects", {}) or {}
+    if not isinstance(existing_projects, dict):
+        raise ConfigError("projects must be an object")
+    destination_defaults = dict(existing)
+    if scope_project:
+        project_target = existing_projects.get(project_key(scope_project), {})
+        if project_target and not isinstance(project_target, dict):
+            raise ConfigError("project target must be an object")
+        destination_defaults.update(project_target)
+
+    if args.chat_id:
+        target = (
+            str(args.chat_id),
+            str(args.message_thread_id or destination_defaults.get("message_thread_id") or "") or None,
+            str(destination_defaults.get("chat_name", "Configured chat")),
+            str(destination_defaults.get("topic_name", "") or ""),
+        )
+    elif destination_defaults.get("chat_id") and args.yes:
+        target = (
+            str(destination_defaults["chat_id"]),
+            str(destination_defaults.get("message_thread_id") or "") or None,
+            str(destination_defaults.get("chat_name", "Configured chat")),
+            str(destination_defaults.get("topic_name", "") or ""),
+        )
+    else:
+        target = choose_chat(probe)
+    chat_id, thread, chat_name, topic_name = target
+
+    def optional(name: str, flag_value: Any, old_key: str, default: str, source: Mapping[str, Any] = existing) -> str:
         if flag_value is not None:
             return str(flag_value)
         if args.yes:
-            return str(existing.get(old_key, default) or default)
-        return prompt(name, str(existing.get(old_key, default) or default))
+            return str(source.get(old_key, default) or default)
+        return prompt(name, str(source.get(old_key, default) or default))
 
     sender = optional("Sender/agent name", args.sender, "sender", "Codex")
-    thread = optional("Message thread id (optional)", args.message_thread_id, "message_thread_id", "")
+    thread = str(args.message_thread_id or thread or "")
     fmt = optional("Format (HTML/plain)", args.format, "format", "HTML").upper()
     max_len = int(args.max_length if args.max_length is not None else existing.get("max_length", DEFAULT_MAX_LENGTH))
     oversize = optional("Oversize behavior (split/truncate)", args.oversize, "oversize", "split").lower()
     timeout = float(args.timeout if args.timeout is not None else existing.get("timeout", 15))
-    proxy = optional("Proxy URL (optional)", args.proxy, "proxy", "")
+    proxy = optional("Proxy URL (optional)", args.proxy, "proxy", "", {**existing, "proxy": proxy_default})
+    ca_file = optional("CA PEM file (optional)", args.ca_file, "ca_file", "", {**existing, "ca_file": ca_default})
     if args.send_files is not None:
         send_files = args.send_files
     elif args.yes:
@@ -795,28 +983,31 @@ def handle_configure(argv: Sequence[str], prog: str) -> int:
     else:
         send_files = prompt("Allow explicit file sending? Y/n", "Y").lower() in {"", "y", "yes"}
 
-    saved_values = dict(
-        existing,
-        enabled=True,
-        bot_token=token,
-        chat_id=chat_id,
-        message_thread_id=thread or None,
-        sender=sender,
-        format=fmt,
-        max_length=max_len,
-        oversize=oversize,
-        timeout=timeout,
-        proxy=proxy or None,
-        send_files=send_files,
-        bot_username=username,
-        chat_name=chat_name,
-    )
+    saved_values = dict(existing, enabled=True, bot_token=token, sender=sender, format=fmt, max_length=max_len,
+                        oversize=oversize, timeout=timeout, proxy=proxy or None, ca_file=ca_file or None,
+                        send_files=send_files, bot_username=username)
+    if scope_project:
+        projects = dict(existing_projects)
+        projects[project_key(scope_project)] = {
+            "chat_id": chat_id,
+            "message_thread_id": thread or None,
+            "chat_name": chat_name,
+            "topic_name": topic_name,
+        }
+        saved_values["projects"] = projects
+    else:
+        saved_values.update(
+            chat_id=chat_id,
+            message_thread_id=thread or None,
+            chat_name=chat_name,
+            topic_name=topic_name,
+        )
     settings = Settings.from_mapping(saved_values, path)
     save_settings(settings)
     print(f"✓ Configuration saved: {settings.path}")
     if not args.no_test:
         print("Testing notification...")
-        test_settings = settings
+        test_settings = apply_project_override(settings, scope_project) if scope_project else settings
         if not notify(test_settings, f"✅ {settings.sender} notifications configured successfully.", strict=True):
             return 1
     return 0
@@ -836,13 +1027,18 @@ def handle_test(argv: Sequence[str], prog: str) -> int:
 def handle_status(argv: Sequence[str], prog: str) -> int:
     parser = argparse.ArgumentParser(prog=prog, description="Show redacted configuration status.")
     parser.add_argument("--config", type=Path)
+    parser.add_argument("--project-dir", type=Path, help="show the destination for this project")
     parser.add_argument("--no-check", action="store_true", help="do not contact Telegram")
     args = parser.parse_args(list(argv))
     settings = load_settings(path=args.config)
+    if settings.projects:
+        settings = apply_project_override(settings, args.project_dir or detect_project_root())
     print("Telegram Agent Notifications")
     print(f"Enabled: {'yes' if settings.enabled else 'no'}")
     print(f"Bot: @{settings.bot_username}" if settings.bot_username else f"Bot: {'configured' if settings.bot_token else 'not configured'}")
     print(f"Chat: {settings.chat_name or ('configured' if settings.chat_id else 'not configured')}")
+    if settings.message_thread_id:
+        print(f"Topic: {settings.topic_name or ('thread ' + settings.message_thread_id)}")
     print("Token: configured (hidden)" if settings.bot_token else "Token: not configured")
     print(f"Config: {settings.path}")
     if args.no_check or not settings.bot_token:
@@ -859,17 +1055,23 @@ def handle_status(argv: Sequence[str], prog: str) -> int:
 def handle_doctor(argv: Sequence[str], prog: str) -> int:
     parser = argparse.ArgumentParser(prog=prog, description="Check local configuration and Telegram connectivity.")
     parser.add_argument("--config", type=Path)
+    parser.add_argument("--project-dir", type=Path, help="check the destination for this project")
     args = parser.parse_args(list(argv))
     path = Path(args.config or config_path()).expanduser()
     checks: List[Tuple[str, bool, str]] = []
     checks.append(("config file", path.exists(), str(path)))
     try:
         settings = load_settings(path=path)
+        if settings.projects:
+            settings = apply_project_override(settings, args.project_dir or detect_project_root())
         checks.append(("bot token", validate_bot_token(settings.bot_token), "shape valid" if settings.bot_token else "missing"))
         checks.append(("chat_id", validate_chat_id(settings.chat_id), "valid" if settings.chat_id else "missing"))
         if path.exists() and os.name != "nt":
             mode = stat.S_IMODE(path.stat().st_mode)
             checks.append(("config permissions", (mode & 0o077) == 0, oct(mode)))
+        if settings.ca_file:
+            ca_path = Path(settings.ca_file).expanduser()
+            checks.append(("CA file", ca_path.is_file(), str(ca_path)))
         if settings.bot_token and validate_bot_token(settings.bot_token):
             try:
                 TelegramClient(settings).get_me()

@@ -1,0 +1,37 @@
+name: Bug report
+description: Report a reproducible problem with telegram-agent-notify.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please remove bot tokens, chat IDs, private URLs, and corporate certificate contents before submitting.
+  - type: textarea
+    id: describe
+    attributes:
+      label: What happened?
+      description: Include the command and the redacted error output.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform and Python version
+      placeholder: "macOS 14, Python 3.12"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: List the smallest safe sequence that reproduces the issue.
+    validations:
+      required: true

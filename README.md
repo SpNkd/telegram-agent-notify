@@ -2,7 +2,20 @@
 
 Small, dependency-free Telegram notifications for Codex CLI, Claude Code, and other coding agents.
 
+[![Tests](https://github.com/OWNER/telegram-agent-notify/actions/workflows/test.yml/badge.svg)](https://github.com/OWNER/telegram-agent-notify/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+Русская версия: [README.ru.md](README.ru.md).
+
 The design is intentionally simple: the agent finishes the task, sends one short completion summary, and then returns its normal final response. It does not mirror stdout or send progress for every tool call.
+
+## Demo
+
+These screenshots use demo data only; no real bot token or chat is included.
+
+![Example Telegram completion notification](docs/images/telegram-notification.png)
+
+![Example configuration flow](docs/images/configure.png)
 
 ## Install
 
@@ -42,10 +55,13 @@ The installer is idempotent. Use `--force` when updating an existing installatio
 2. Send `/newbot`, choose a name and username, and copy the token.
 3. Run `telegram-notify configure`.
 4. Paste the token when prompted.
-5. Send any message to the new bot and press Enter in the terminal.
-6. The setup discovers recent updates, lets you choose the chat, saves the configuration, and sends a test message.
+5. Send a message in the exact destination: directly to the bot for a private chat, or inside the target group/topic.
+6. Press Enter in the terminal. The setup discovers the destination and, when applicable, the topic automatically.
+7. Confirm the optional settings and let the setup send a test message.
 
 The token is never placed in this repository. Do not paste a real token into shell history, source files, or issue reports.
+
+For group topics, the bot must be able to receive the message. If Telegram privacy mode hides ordinary group messages, send a command or mention the bot, make the bot an administrator, or adjust the bot's privacy setting in BotFather. The wizard only needs one recent message in the desired topic.
 
 ## Configure and test
 
@@ -63,7 +79,19 @@ Configuration is stored outside the repository:
 - Linux/macOS: `$XDG_CONFIG_HOME/telegram-notify/config.json`, or `~/.config/telegram-notify/config.json` when `XDG_CONFIG_HOME` is unset.
 - Windows: `%APPDATA%\\telegram-notify\\config.json`.
 
-During `configure`, you can choose the sender name, Telegram topic thread, format, maximum length, proxy, timeout, and whether explicit file uploads are allowed.
+`configure` asks whether the destination is the default for all projects or only the current project. To make the choice explicit:
+
+```bash
+# default destination for all projects
+telegram-notify configure --default
+
+# destination for the current Git project; `.` is resolved to its repository root
+telegram-notify configure --project-dir .
+```
+
+Run the second command from the project directory and send the discovery message in that project's group or topic. Each project override stores only its destination; the bot token remains shared in the protected config file. Without a matching project override, notifications use the default destination.
+
+During `configure`, you can choose the sender name, format, maximum length, proxy, timeout, CA bundle, and whether explicit file uploads are allowed. A topic is selected by sending the discovery message in that topic; no manual topic lookup is required.
 
 For an alternate location, set `TELEGRAM_NOTIFY_CONFIG`. Settings resolve in this order: CLI options, environment variables, config file, defaults.
 
@@ -79,7 +107,11 @@ TELEGRAM_NOTIFY_FORMAT=HTML|plain
 TELEGRAM_NOTIFY_MAX_LENGTH=3900
 TELEGRAM_NOTIFY_TIMEOUT=15
 TELEGRAM_NOTIFY_PROXY=http://proxy.example:8080
+TELEGRAM_NOTIFY_CA_FILE=/path/to/corporate-root-ca.pem
+TELEGRAM_NOTIFY_PROJECT_DIR=/path/to/project
 ```
+
+If macOS or a corporate HTTPS proxy reports `CERTIFICATE_VERIFY_FAILED`, export the proxy's root certificate as a PEM bundle and configure it with `telegram-notify configure --ca-file /path/to/corporate-root-ca.pem` or `TELEGRAM_NOTIFY_CA_FILE`. Certificate verification stays enabled; do not work around this error by disabling TLS verification.
 
 ## Manual usage
 
@@ -110,6 +142,8 @@ telegram-notify completion \
   --commit "7a21fc8" \
   --duration "18m 42s"
 ```
+
+The command automatically uses the project-specific destination when it is run inside a configured Git repository. Use `--project-dir /path/to/project` when the working directory is different.
 
 Failure summary:
 
@@ -173,6 +207,7 @@ The optional [integrations/claude/settings.fragment.json](integrations/claude/se
 - API URLs, request bodies, and tokens are not logged. Error text is token-redacted.
 - Dynamic message content is HTML-escaped. `plain` mode is available if desired.
 - Network/API errors become a warning for ordinary notifications. `test`, `doctor`, and `configure` still return a failing exit code when verification fails.
+- TLS certificate verification is always enabled. A corporate root CA can be supplied explicitly with `--ca-file` or `TELEGRAM_NOTIFY_CA_FILE`.
 - No Telegram request is made by the unit test suite.
 
 ## Development
@@ -184,6 +219,8 @@ python3 telegram_notify.py --version
 ```
 
 The test suite uses fake HTTP openers. A real Telegram token is never needed to run it.
+
+CI runs the same checks on Ubuntu, macOS, and Windows with Python 3.9–3.13.
 
 ## License
 

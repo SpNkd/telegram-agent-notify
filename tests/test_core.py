@@ -2,6 +2,7 @@ import json
 import stat
 import tempfile
 import unittest
+from argparse import Namespace
 from pathlib import Path
 from urllib.error import URLError
 
@@ -14,7 +15,10 @@ from src.telegram_notify import (  # noqa: E402
     Settings,
     TelegramClient,
     TelegramNetworkError,
+    apply_project_override,
+    find_targets,
     format_completion,
+    load_from_args,
     load_settings,
     prepare_chunks,
     save_settings,
@@ -66,6 +70,72 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(settings.bot_token, TOKEN)
             self.assertEqual(settings.sender, "env")
             self.assertEqual(settings.chat_id, "1")
+
+    def test_topic_target_is_discovered_without_manual_ids(self):
+        targets = find_targets(
+            [
+                {
+                    "update_id": 1,
+                    "message": {
+                        "message_id": 10,
+                        "message_thread_id": 77,
+                        "text": "ping",
+                        "chat": {"id": -100123, "title": "Engineering"},
+                        "forum_topic_created": {"name": "Releases"},
+                    },
+                }
+            ]
+        )
+        self.assertEqual(targets, [("-100123", "77", "Engineering", "Releases")])
+
+    def test_project_target_overrides_default_destination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory).resolve()
+            settings = Settings.from_mapping(
+                {
+                    "bot_token": TOKEN,
+                    "chat_id": "-1001",
+                    "chat_name": "Default",
+                    "projects": {str(project): {"chat_id": "-1002", "chat_name": "Project"}},
+                },
+                Path("config.json"),
+            )
+            overridden = apply_project_override(settings, project)
+            self.assertEqual(overridden.chat_id, "-1002")
+            self.assertEqual(overridden.chat_name, "Project")
+            self.assertEqual(overridden.bot_token, TOKEN)
+
+    def test_cli_destination_override_wins_over_project_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory).resolve()
+            config = project / "config.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "bot_token": TOKEN,
+                        "chat_id": "-1001",
+                        "projects": {str(project): {"chat_id": "-1002", "message_thread_id": "77"}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = Namespace(
+                config=config,
+                project_dir=project,
+                bot_token=None,
+                chat_id="-1003",
+                message_thread_id=None,
+                sender=None,
+                format=None,
+                max_length=None,
+                oversize=None,
+                ca_file=None,
+                timeout=None,
+                proxy=None,
+            )
+            settings = load_from_args(args)
+            self.assertEqual(settings.chat_id, "-1003")
+            self.assertEqual(settings.message_thread_id, "77")
 
     def test_config_is_written_with_restricted_permissions(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -124,6 +194,14 @@ class CoreTests(unittest.TestCase):
         with self.assertRaises(TelegramNetworkError) as raised:
             client.send_message("hello")
         self.assertNotIn(TOKEN, str(raised.exception))
+
+    def test_tls_error_explains_corporate_ca_configuration(self):
+        settings = Settings.from_mapping({"bot_token": TOKEN, "chat_id": "1"}, Path("config.json"))
+        client = TelegramClient(settings, opener=FakeOpener(error=URLError("CERTIFICATE_VERIFY_FAILED")))
+        with self.assertRaises(TelegramNetworkError) as raised:
+            client.send_message("hello")
+        self.assertIn("TELEGRAM_NOTIFY_CA_FILE", str(raised.exception))
+        self.assertIn("TLS verification was not disabled", str(raised.exception))
 
     def test_invalid_token_and_missing_chat_are_rejected(self):
         self.assertFalse(validate_bot_token("not-a-token"))
